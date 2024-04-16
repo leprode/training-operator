@@ -20,6 +20,7 @@ import (
 	"strings"
 
 	corev1 "k8s.io/api/core/v1"
+	kubeclientset "k8s.io/client-go/kubernetes"
 
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 )
@@ -37,10 +38,10 @@ const (
 
 // EnvVarGenerator is the environment variable generator interface.
 type EnvVarGenerator interface {
-	Generate(job *kubeflowv1.PyTorchJob) ([]corev1.EnvVar, error)
+	Generate(job *kubeflowv1.PyTorchJob, rtype string, KubeClient kubeclientset.Interface, isInitConatiner bool) ([]corev1.EnvVar, error)
 }
 
-func setPodEnv(obj interface{}, podTemplateSpec *corev1.PodTemplateSpec, rtype, index string) error {
+func setPodEnv(obj interface{}, podTemplateSpec *corev1.PodTemplateSpec, rtype, index string, KubeClient kubeclientset.Interface) error {
 	pytorchjob, ok := obj.(*kubeflowv1.PyTorchJob)
 	if !ok {
 		return fmt.Errorf("%+v is not a type of PyTorchJob", obj)
@@ -65,7 +66,7 @@ func setPodEnv(obj interface{}, podTemplateSpec *corev1.PodTemplateSpec, rtype, 
 
 		// If the master is not null, then we need to set the MASTER_ADDR and RANK.
 		if pytorchjob.Spec.PyTorchReplicaSpecs[kubeflowv1.PyTorchJobReplicaTypeMaster] != nil {
-			envVars, err := GetMasterEnvVarGenerator().Generate(pytorchjob)
+			envVars, err := GetMasterEnvVarGenerator().Generate(pytorchjob, rtype, KubeClient, false)
 			if err != nil {
 				return err
 			}
@@ -107,7 +108,7 @@ func setPodEnv(obj interface{}, podTemplateSpec *corev1.PodTemplateSpec, rtype, 
 		// nnodes is set in range format in elastic mode, e.g. nnodes=1:4
 		// otherwise, nnodes is set by int, e.g. nnodes=2
 		if pytorchjob.Spec.ElasticPolicy != nil {
-			envVars, err := GetElasticEnvVarGenerator().Generate(pytorchjob)
+			envVars, err := GetElasticEnvVarGenerator().Generate(pytorchjob, rtype, KubeClient, false)
 			if err != nil {
 				return err
 			}
@@ -120,6 +121,48 @@ func setPodEnv(obj interface{}, podTemplateSpec *corev1.PodTemplateSpec, rtype, 
 					Name:  EnvNnodes,
 					Value: strconv.Itoa(int(totalReplicas)),
 				})
+		}
+	}
+
+	for i := range podTemplateSpec.Spec.InitContainers {
+		// Initialize the environment variables.
+		if len(podTemplateSpec.Spec.InitContainers[i].Env) == 0 {
+			podTemplateSpec.Spec.InitContainers[i].Env = make([]corev1.EnvVar, 0)
+		}
+		totalReplicas := getTotalReplicas(pytorchjob)
+		nprocPerNode := getNprocPerNodeInt(pytorchjob)
+		worldSize := int(totalReplicas) * nprocPerNode
+
+		if pytorchjob.Spec.PyTorchReplicaSpecs[kubeflowv1.PyTorchJobReplicaTypeMaster] != nil {
+			envVars, err := GetMasterEnvVarGenerator().Generate(pytorchjob, rtype, KubeClient, true)
+			if err != nil {
+				return err
+			}
+			// Set master related environment variables.
+			podTemplateSpec.Spec.InitContainers[i].Env = append(
+				podTemplateSpec.Spec.InitContainers[i].Env, envVars...)
+
+			// Set world size and rank.
+			rank, err := strconv.Atoi(index)
+			if err != nil {
+				return err
+			}
+			if rtype == strings.ToLower(string(kubeflowv1.PyTorchJobReplicaTypeWorker)) {
+				rank = rank + 1
+			}
+
+			podTemplateSpec.Spec.InitContainers[i].Env = append(podTemplateSpec.Spec.InitContainers[i].Env, corev1.EnvVar{
+				Name:  "WORLD_SIZE",
+				Value: strconv.Itoa(worldSize),
+			})
+			podTemplateSpec.Spec.InitContainers[i].Env = append(podTemplateSpec.Spec.InitContainers[i].Env, corev1.EnvVar{
+				Name:  "RANK",
+				Value: strconv.Itoa(rank),
+			})
+			podTemplateSpec.Spec.InitContainers[i].Env = append(podTemplateSpec.Spec.InitContainers[i].Env, corev1.EnvVar{
+				Name:  EnvNodeRank,
+				Value: strconv.Itoa(rank),
+			})
 		}
 	}
 

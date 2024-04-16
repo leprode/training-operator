@@ -15,12 +15,15 @@
 package pytorch
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/onsi/ginkgo/v2"
 	"github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
 	"k8s.io/utils/pointer"
+	ctrlconfig "sigs.k8s.io/controller-runtime/pkg/client/config"
 
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 )
@@ -111,8 +114,10 @@ func TestElasticGenerate(t *testing.T) {
 		},
 	}
 
+	cfg, _ := ctrlconfig.GetConfig()
+	kubeclientset, _ := kubernetes.NewForConfig(cfg)
 	for _, test := range tests {
-		actual, err := GetElasticEnvVarGenerator().Generate(test.job)
+		actual, err := GetElasticEnvVarGenerator().Generate(test.job, strings.ToLower(string(kubeflowv1.PyTorchJobReplicaTypeWorker)), kubeclientset, false)
 		if test.expectedErr == nil {
 			gomega.Expect(err).To(gomega.BeNil())
 		} else {

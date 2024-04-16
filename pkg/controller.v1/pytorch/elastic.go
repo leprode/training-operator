@@ -20,6 +20,7 @@ import (
 	"sync"
 
 	corev1 "k8s.io/api/core/v1"
+	kubeclientset "k8s.io/client-go/kubernetes"
 
 	kubeflowv1 "github.com/kubeflow/training-operator/pkg/apis/kubeflow.org/v1"
 )
@@ -66,7 +67,7 @@ func GetElasticEnvVarGenerator() EnvVarGenerator {
 }
 
 func (e ElasticEnvVarGenerator) Generate(
-	job *kubeflowv1.PyTorchJob) ([]corev1.EnvVar, error) {
+	job *kubeflowv1.PyTorchJob, rtype string, KubeClient kubeclientset.Interface, isInitConatiner bool) ([]corev1.EnvVar, error) {
 	envVars := []corev1.EnvVar{}
 
 	elasticPolicy := job.Spec.ElasticPolicy

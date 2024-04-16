@@ -83,7 +83,7 @@ build: generate fmt vet ## Build manager binary.
 run: manifests generate fmt vet ## Run a controller from your host.
 	go run ./cmd/training-operator.v1/main.go
 
-docker-build: test ## Build docker image with the manager.
+docker-build: ## Build docker image with the manager.
 	docker build -t ${IMG} -f build/images/training-operator/Dockerfile .
 
 docker-push: ## Push docker image with the manager.
